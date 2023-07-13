@@ -5,6 +5,11 @@ use web_sys::console;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
+fn document() -> web_sys::Document {
+    let window = web_sys::window().expect("no global `window` exists");
+    window.document().expect("should have a document on window")
+}
+
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
     #[cfg(debug_assertions)]
@@ -22,7 +27,7 @@ pub fn main() -> Result<(), JsValue> {
 
     body.append_child(&val)?;
 
-    let wt = web_sys::WebTransport::new("http://localhost:4433/counter")?;
+    console::log_1(&JsValue::from_str("ok"));
 
     Ok(())
 }
@@ -30,4 +35,13 @@ pub fn main() -> Result<(), JsValue> {
 #[wasm_bindgen]
 pub fn hello() {
     console::log_1(&JsValue::from_str("Hello world!"));
+}
+
+#[wasm_bindgen]
+pub fn wtconnect() -> Result<(), JsValue> {
+    let document = document();
+    let url = document.get_element_by_id("url").expect("No url element");
+    let url = url.dyn_into::<web_sys::HtmlInputElement>().unwrap().value();
+    console::log_1(&JsValue::from_str(&url));
+    Ok(())
 }

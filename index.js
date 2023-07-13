@@ -1,7 +1,8 @@
-import init, { hello } from "./pkg/wasm_webtransport.js";
+import init, { hello, wtconnect } from "./pkg/wasm_webtransport.js";
 await init();
 hello();
 
 window.wasm = {
-    hello: hello
+    hello: hello,
+    wtconnect: wtconnect,
 }
