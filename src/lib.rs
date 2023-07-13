@@ -29,10 +29,9 @@ pub fn main() -> Result<(), JsValue> {
 
     let button = document.get_element_by_id("hello").expect("no 'hello' button");
     let button = button.dyn_into::<web_sys::HtmlElement>().unwrap();
-    let on_click: Box<dyn FnMut(_)> = Box::new(move |_event: web_sys::InputEvent| {
+    let on_click = Closure::<dyn Fn(_)>::new(move |_event: web_sys::InputEvent| {
         console::log_1(&JsValue::from_str("clicked"));
     });
-    let on_click = Closure::wrap(on_click);
     button.add_event_listener_with_callback("click", on_click.as_ref().unchecked_ref())?;
     on_click.forget();
 
