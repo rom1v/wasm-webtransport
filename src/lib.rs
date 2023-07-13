@@ -22,6 +22,8 @@ pub fn main() -> Result<(), JsValue> {
 
     body.append_child(&val)?;
 
+    let wt = web_sys::WebTransport::new("http://localhost:4433/counter")?;
+
     Ok(())
 }
 

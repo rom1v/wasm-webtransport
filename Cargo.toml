@@ -28,5 +28,6 @@ features = [
     "Document",
     "Element",
     "HtmlElement",
+    "WebTransport",
     "Window",
 ]

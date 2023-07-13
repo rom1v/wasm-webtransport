@@ -1,3 +1,5 @@
+export RUSTFLAGS=--cfg=web_sys_unstable_apis
+
 build:
 	wasm-pack build --target web
 
