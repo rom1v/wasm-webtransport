@@ -21,4 +21,10 @@ wee_alloc = { version = "0.4.2", optional = true }
 
 [dependencies.web-sys]
 version = "0.3"
-features = ["console"]
+features = [
+    "console",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Window",
+]
