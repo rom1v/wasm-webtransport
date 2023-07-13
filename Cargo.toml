@@ -29,6 +29,7 @@ features = [
     "Element",
     "HtmlElement",
     "HtmlInputElement",
+    "InputEvent",
     "WebTransport",
     "Window",
 ]
