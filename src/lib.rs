@@ -5,35 +5,10 @@ use web_sys::console;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-fn document() -> web_sys::Document {
-    let window = web_sys::window().expect("no global `window` exists");
-    window.document().expect("should have a document on window")
-}
-
 #[wasm_bindgen(start)]
 pub fn main() -> Result<(), JsValue> {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
-
-    // Use `web_sys`'s global `window` function to get a handle on the global
-    // window object.
-    let window = web_sys::window().expect("no global `window` exists");
-    let document = window.document().expect("should have a document on window");
-    let body = document.body().expect("document should have a body");
-
-    // Manufacture the element we're gonna append
-    let val = document.create_element("p")?;
-    val.set_inner_html("Hello from Rust!");
-
-    body.append_child(&val)?;
-
-    let button = document.get_element_by_id("hello").expect("no 'hello' button");
-    let button = button.dyn_into::<web_sys::HtmlElement>().unwrap();
-    let on_click = Closure::<dyn Fn(_)>::new(move |_event: web_sys::InputEvent| {
-        console::log_1(&JsValue::from_str("clicked"));
-    });
-    button.add_event_listener_with_callback("click", on_click.as_ref().unchecked_ref())?;
-    on_click.forget();
 
     console::log_1(&JsValue::from_str("ok"));
 
@@ -41,15 +16,95 @@ pub fn main() -> Result<(), JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn hello() {
-    console::log_1(&JsValue::from_str("Hello world!"));
+pub struct WasmCtx {
+    window: web_sys::Window,
+    document: web_sys::Document,
+    web_transport: Option<web_sys::WebTransport>,
+}
+
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum Severity {
+    INFO,
+    ERROR,
 }
 
 #[wasm_bindgen]
-pub fn wtconnect() -> Result<(), JsValue> {
-    let document = document();
-    let url = document.get_element_by_id("url").expect("No url element");
-    let url = url.dyn_into::<web_sys::HtmlInputElement>().unwrap().value();
-    console::log_1(&JsValue::from_str(&url));
-    Ok(())
+impl WasmCtx {
+    pub fn new() -> Self {
+        let window = web_sys::window().expect("no global `window` exists");
+        let document = window.document().expect("should have a document on window");
+        Self {
+            window,
+            document,
+            web_transport: None,
+        }
+    }
+
+    pub fn connect(&mut self) -> Result<(), JsValue> {
+        let url = self
+            .document
+            .get_element_by_id("url")
+            .expect("No url element");
+        let url = url.dyn_into::<web_sys::HtmlInputElement>().unwrap().value();
+
+        match web_sys::WebTransport::new(&url) {
+            Ok(web_transport) => {
+                self.add_to_event_log(&"Initiating connection...");
+                self.web_transport = Some(web_transport);
+            }
+            Err(err) => {
+                console::log_1(&JsValue::from_str(&format!("{:?}", err)));
+                self.add_to_event_log_error(&format!(
+                    "Failed to create connection object. {:?}",
+                    err
+                ));
+            }
+        };
+
+        console::log_1(&JsValue::from_str(&url));
+
+        Ok(())
+    }
+
+    pub fn send_data(&self) -> Result<(), JsValue> {
+        Ok(())
+    }
+
+    fn add_to_event_log_with_severity(&self, text: &str, severity: Severity) {
+        let log = self
+            .document
+            .get_element_by_id("event-log")
+            .expect("no event-log");
+        let most_recent_entry = log.last_element_child();
+        let entry = self
+            .document
+            .create_element("li")
+            .expect("Cannot create 'li'");
+        entry.set_inner_html(text);
+        let class_name = if severity == Severity::ERROR {
+            "log-error"
+        } else {
+            "log-info"
+        };
+        entry.set_class_name(class_name);
+        log.append_child(&entry).expect("Could not append child");
+
+        // If the most recent entry in the log was visible, scroll the log to the
+        // newly added element.
+        if let Some(most_recent_entry) = most_recent_entry {
+            if most_recent_entry.get_bounding_client_rect().top()
+                < log.get_bounding_client_rect().bottom()
+            {
+                entry.scroll_into_view();
+            }
+        }
+    }
+
+    fn add_to_event_log(&self, text: &str) {
+        self.add_to_event_log_with_severity(text, Severity::INFO);
+    }
+
+    fn add_to_event_log_error(&self, text: &str) {
+        self.add_to_event_log_with_severity(text, Severity::ERROR);
+    }
 }

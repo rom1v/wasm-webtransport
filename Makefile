@@ -7,4 +7,4 @@ serve:
 	python -m http.server 4242
 
 run:
-	x-www-browser http://localhost:4242
+	x-www-browser http://localhost:4242/client.html
