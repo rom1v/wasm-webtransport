@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
-use web_sys::console;
 use wasm_bindgen_futures::JsFuture;
+use web_sys::console;
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -20,13 +20,8 @@ pub fn main() -> Result<(), JsValue> {
 pub struct WasmCtx {
     window: web_sys::Window,
     document: web_sys::Document,
+    logger: Logger,
     web_transport: Option<web_sys::WebTransport>,
-}
-
-#[derive(PartialEq, Eq, Copy, Clone)]
-enum Severity {
-    INFO,
-    ERROR,
 }
 
 #[wasm_bindgen]
@@ -34,9 +29,11 @@ impl WasmCtx {
     pub fn new() -> Self {
         let window = web_sys::window().expect("no global `window` exists");
         let document = window.document().expect("should have a document on window");
+        let logger = Logger::new(document.clone());
         Self {
             window,
             document,
+            logger,
             web_transport: None,
         }
     }
@@ -50,19 +47,19 @@ impl WasmCtx {
 
         let web_transport = web_sys::WebTransport::new(&url).or_else(|err| {
             let msg = format!("Failed to create connection object. {:?}", err);
-            self.add_to_event_log_error(&msg);
+            self.logger.add_to_event_log_error(&msg);
             Err(JsValue::from(&msg))
         })?;
 
-        self.add_to_event_log(&"Initiating connection...");
+        self.logger.add_to_event_log(&"Initiating connection...");
 
         JsFuture::from(web_transport.ready()).await.or_else(|err| {
             let msg = format!("Connection failed. {:?}", err);
-            self.add_to_event_log_error(&msg);
+            self.logger.add_to_event_log_error(&msg);
             Err(JsValue::from(&msg))
         })?;
 
-        self.add_to_event_log(&"Connection ready.");
+        self.logger.add_to_event_log(&"Connection ready.");
 
         self.web_transport = Some(web_transport);
 
@@ -73,6 +70,23 @@ impl WasmCtx {
 
     pub fn send_data(&self) -> Result<(), JsValue> {
         Ok(())
+    }
+}
+
+#[derive(PartialEq, Eq, Copy, Clone)]
+enum Severity {
+    INFO,
+    ERROR,
+}
+
+#[derive(Clone)]
+struct Logger {
+    document: web_sys::Document,
+}
+
+impl Logger {
+    fn new(document: web_sys::Document) -> Self {
+        Self { document }
     }
 
     fn add_to_event_log_with_severity(&self, text: &str, severity: Severity) {
