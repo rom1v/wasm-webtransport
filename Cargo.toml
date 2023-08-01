@@ -34,5 +34,8 @@ features = [
     "InputEvent",
     "Node",
     "WebTransport",
+    "WebTransportDatagramDuplexStream",
     "Window",
+    "WritableStream",
+    "WritableStreamDefaultWriter",
 ]

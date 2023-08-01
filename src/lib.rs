@@ -23,6 +23,7 @@ pub struct WasmCtx {
     logger: Logger,
     close_cbs: Option<CloseCallbacks>,
     web_transport: Option<web_sys::WebTransport>,
+    datagram_writer: Option<web_sys::WritableStreamDefaultWriter>,
 }
 
 #[wasm_bindgen]
@@ -37,6 +38,7 @@ impl WasmCtx {
             logger,
             close_cbs: None,
             web_transport: None,
+            datagram_writer: None,
         }
     }
 
@@ -77,6 +79,19 @@ impl WasmCtx {
         self.close_cbs = Some(CloseCallbacks { then, catch });
         let cbs = self.close_cbs.as_ref().unwrap();
         let _ = web_transport.closed().then2(&cbs.then, &cbs.catch);
+
+        let datagram_writer = web_transport
+            .datagrams()
+            .writable()
+            .get_writer()
+            .or_else(|err| {
+                let msg = format!("Sending datagrams not supported: {:?}", err);
+                self.logger.add_to_event_log_error(&msg);
+                Err(JsValue::from(&msg))
+            })?;
+        self.datagram_writer = Some(datagram_writer);
+
+        self.logger.add_to_event_log(&"Datagram writer ready.");
 
         self.web_transport = Some(web_transport);
 
