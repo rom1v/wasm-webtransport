@@ -101,6 +101,20 @@ impl WasmCtx {
         self.read_datagrams(&web_transport).await?;
         self.accept_unidirectional_streams(&web_transport).await?;
 
+        let send_button = self
+            .document
+            .get_element_by_id("send")
+            .expect("No send button")
+            .dyn_into::<web_sys::HtmlInputElement>()?;
+        send_button.set_disabled(false);
+
+        let connect_button = self
+            .document
+            .get_element_by_id("connect")
+            .expect("No connect button")
+            .dyn_into::<web_sys::HtmlInputElement>()?;
+        connect_button.set_disabled(true);
+
         console::log_1(&JsValue::from_str(&url));
 
         Ok(())
