@@ -83,6 +83,8 @@ impl WasmCtx {
         let cbs = self.close_cbs.as_ref().unwrap();
         let _ = web_transport.closed().then2(&cbs.then, &cbs.catch);
 
+        self.web_transport = Some(web_transport.clone());
+
         let datagram_writer = web_transport
             .datagrams()
             .writable()
@@ -98,8 +100,6 @@ impl WasmCtx {
 
         self.read_datagrams(&web_transport).await?;
         self.accept_unidirectional_streams(&web_transport).await?;
-
-        self.web_transport = Some(web_transport);
 
         console::log_1(&JsValue::from_str(&url));
 
