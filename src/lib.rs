@@ -21,6 +21,7 @@ pub struct WasmCtx {
     window: web_sys::Window,
     document: web_sys::Document,
     logger: Logger,
+    close_cbs: Option<CloseCallbacks>,
     web_transport: Option<web_sys::WebTransport>,
 }
 
@@ -34,6 +35,7 @@ impl WasmCtx {
             window,
             document,
             logger,
+            close_cbs: None,
             web_transport: None,
         }
     }
@@ -61,6 +63,21 @@ impl WasmCtx {
 
         self.logger.add_to_event_log(&"Connection ready.");
 
+        let logger = self.logger.clone();
+        let then = Closure::once(move |_| {
+            logger.add_to_event_log(&"Connection closed normally.");
+        });
+
+        let logger = self.logger.clone();
+        let catch = Closure::once(move |_| {
+            logger.add_to_event_log(&"Connection closed abruptly.");
+        });
+
+        // Keep the closures alive
+        self.close_cbs = Some(CloseCallbacks { then, catch });
+        let cbs = self.close_cbs.as_ref().unwrap();
+        let _ = web_transport.closed().then2(&cbs.then, &cbs.catch);
+
         self.web_transport = Some(web_transport);
 
         console::log_1(&JsValue::from_str(&url));
@@ -71,6 +88,11 @@ impl WasmCtx {
     pub fn send_data(&self) -> Result<(), JsValue> {
         Ok(())
     }
+}
+
+struct CloseCallbacks {
+    then: Closure<dyn FnMut(JsValue)>,
+    catch: Closure<dyn FnMut(JsValue)>,
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
