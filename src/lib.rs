@@ -1,5 +1,6 @@
 use wasm_bindgen::prelude::*;
 use web_sys::console;
+use wasm_bindgen_futures::JsFuture;
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -40,7 +41,7 @@ impl WasmCtx {
         }
     }
 
-    pub fn connect(&mut self) -> Result<(), JsValue> {
+    pub async fn connect(&mut self) -> Result<(), JsValue> {
         let url = self
             .document
             .get_element_by_id("url")
@@ -54,6 +55,15 @@ impl WasmCtx {
         })?;
 
         self.add_to_event_log(&"Initiating connection...");
+
+        JsFuture::from(web_transport.ready()).await.or_else(|err| {
+            let msg = format!("Connection failed. {:?}", err);
+            self.add_to_event_log_error(&msg);
+            Err(JsValue::from(&msg))
+        })?;
+
+        self.add_to_event_log(&"Connection ready.");
+
         self.web_transport = Some(web_transport);
 
         console::log_1(&JsValue::from_str(&url));
