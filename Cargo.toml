@@ -39,6 +39,7 @@ features = [
     "TextDecoder",
     "WebTransport",
     "WebTransportDatagramDuplexStream",
+    "WebTransportReceiveStream",
     "Window",
     "WritableStream",
     "WritableStreamDefaultWriter",

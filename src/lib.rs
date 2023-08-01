@@ -25,6 +25,7 @@ pub struct WasmCtx {
     close_cbs: Option<CloseCallbacks>,
     web_transport: Option<web_sys::WebTransport>,
     datagram_writer: Option<web_sys::WritableStreamDefaultWriter>,
+    stream_number: u32,
 }
 
 #[wasm_bindgen]
@@ -40,6 +41,7 @@ impl WasmCtx {
             close_cbs: None,
             web_transport: None,
             datagram_writer: None,
+            stream_number: 1,
         }
     }
 
@@ -95,6 +97,7 @@ impl WasmCtx {
         self.logger.add_to_event_log(&"Datagram writer ready.");
 
         self.read_datagrams(&web_transport).await?;
+        self.accept_unidirectional_streams(&web_transport).await?;
 
         self.web_transport = Some(web_transport);
 
@@ -146,6 +149,57 @@ impl WasmCtx {
                 .add_to_event_log(&format!("Datagram received: {}", data));
         }
 
+        Ok(())
+    }
+
+    async fn accept_unidirectional_streams(
+        &mut self,
+        web_transport: &web_sys::WebTransport,
+    ) -> Result<(), JsValue> {
+        let unistreams_reader = web_transport
+            .incoming_unidirectional_streams()
+            .get_reader()
+            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+            .or_else(|obj| {
+                let msg = format!("Could not get unistream reader: {:?}", obj);
+                self.logger.add_to_event_log_error(&msg);
+                Err(JsValue::from(&msg))
+            })?;
+
+        loop {
+            let obj = JsFuture::from(unistreams_reader.read())
+                .await
+                .or_else(|err| {
+                    let msg = format!("Error while accepting streams: {:?}", err);
+                    self.logger.add_to_event_log_error(&msg);
+                    Err(JsValue::from(&msg))
+                })?;
+            let done = js_sys::Reflect::get(&obj, &JsValue::from("done"))?
+                .as_bool()
+                .unwrap_or(false);
+            if done {
+                self.logger
+                    .add_to_event_log(&"Done accepting unidirectional streams!");
+                break;
+            }
+
+            let stream = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
+            let stream = stream.dyn_into::<web_sys::WebTransportReceiveStream>().unwrap();
+            let number = self.stream_number;
+            self.stream_number += 1;
+            self.logger
+                .add_to_event_log(&format!("New incoming unidirectional stream #{number}"));
+            self.read_from_incoming_stream(&stream, number).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn read_from_incoming_stream(
+        &self,
+        stream: &web_sys::WebTransportReceiveStream,
+        number: u32,
+    ) -> Result<(), JsValue> {
         Ok(())
     }
 }
