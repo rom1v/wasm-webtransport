@@ -47,19 +47,16 @@ impl WasmCtx {
             .expect("No url element");
         let url = url.dyn_into::<web_sys::HtmlInputElement>().unwrap().value();
 
-        match web_sys::WebTransport::new(&url) {
-            Ok(web_transport) => {
-                self.add_to_event_log(&"Initiating connection...");
-                self.web_transport = Some(web_transport);
-            }
-            Err(err) => {
-                console::log_1(&JsValue::from_str(&format!("{:?}", err)));
-                self.add_to_event_log_error(&format!(
-                    "Failed to create connection object. {:?}",
-                    err
-                ));
-            }
-        };
+        let web_transport = web_sys::WebTransport::new(&url).or_else(|err| {
+            let msg = format!("Failed to create connection object. {:?}", err);
+            let js_error = JsValue::from(&msg);
+            console::log_1(&js_error);
+            self.add_to_event_log_error(&msg);
+            Err(js_error)
+        })?;
+
+        self.add_to_event_log(&"Initiating connection...");
+        self.web_transport = Some(web_transport);
 
         console::log_1(&JsValue::from_str(&url));
 
