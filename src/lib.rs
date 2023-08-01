@@ -184,7 +184,9 @@ impl WasmCtx {
             }
 
             let stream = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
-            let stream = stream.dyn_into::<web_sys::WebTransportReceiveStream>().unwrap();
+            let stream = stream
+                .dyn_into::<web_sys::WebTransportReceiveStream>()
+                .unwrap();
             let number = self.stream_number;
             self.stream_number += 1;
             self.logger
@@ -200,6 +202,39 @@ impl WasmCtx {
         stream: &web_sys::WebTransportReceiveStream,
         number: u32,
     ) -> Result<(), JsValue> {
+        let stream_reader = stream
+            .get_reader()
+            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+            .or_else(|obj| {
+                let msg = format!("Could not get stream reader: {:?}", obj);
+                self.logger.add_to_event_log_error(&msg);
+                Err(JsValue::from(&msg))
+            })?;
+        let decoder = web_sys::TextDecoder::new_with_label("utf-8").unwrap();
+
+        loop {
+            let obj = JsFuture::from(stream_reader.read()).await.or_else(|err| {
+                let msg = format!("Error while reading stream #{number}: {:?}", err);
+                self.logger.add_to_event_log_error(&msg);
+                Err(JsValue::from(&msg))
+            })?;
+            let done = js_sys::Reflect::get(&obj, &JsValue::from("done"))?
+                .as_bool()
+                .unwrap_or(false);
+            if done {
+                self.logger
+                    .add_to_event_log(&format!("Stream #{number} closed"));
+                break;
+            }
+
+            let value = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
+            assert!(!value.is_array());
+            let value = value.dyn_into::<js_sys::Object>()?;
+            let data = decoder.decode_with_buffer_source(&value)?;
+            self.logger
+                .add_to_event_log(&format!("Datagram received: {}", data));
+        }
+
         Ok(())
     }
 }
