@@ -7,4 +7,7 @@ serve:
 	python -m http.server 4242
 
 run:
-	x-www-browser http://localhost:4242/client.html
+	chromium \
+		--origin-to-force-quic-on=localhost:4433 \
+		--ignore-certificate-errors-spki-list=rOxva4Y8FcAUzOje9N66vJTYLxhSK9r5t2tVVEe2bdE= \
+		http://localhost:4242/client.html
