@@ -49,10 +49,8 @@ impl WasmCtx {
 
         let web_transport = web_sys::WebTransport::new(&url).or_else(|err| {
             let msg = format!("Failed to create connection object. {:?}", err);
-            let js_error = JsValue::from(&msg);
-            console::log_1(&js_error);
             self.add_to_event_log_error(&msg);
-            Err(js_error)
+            Err(JsValue::from(&msg))
         })?;
 
         self.add_to_event_log(&"Initiating connection...");
