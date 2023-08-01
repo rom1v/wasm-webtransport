@@ -1,3 +1,4 @@
+use js_sys;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::console;
@@ -93,6 +94,8 @@ impl WasmCtx {
 
         self.logger.add_to_event_log(&"Datagram writer ready.");
 
+        self.read_datagrams(&web_transport).await?;
+
         self.web_transport = Some(web_transport);
 
         console::log_1(&JsValue::from_str(&url));
@@ -101,6 +104,48 @@ impl WasmCtx {
     }
 
     pub fn send_data(&self) -> Result<(), JsValue> {
+        Ok(())
+    }
+
+    async fn read_datagrams(&self, web_transport: &web_sys::WebTransport) -> Result<(), JsValue> {
+        let datagram_reader = web_transport
+            .datagrams()
+            .readable()
+            .get_reader()
+            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+            .or_else(|obj| {
+                let msg = format!("Receiving datagrams not supported: {:?}", obj);
+                self.logger.add_to_event_log_error(&msg);
+                Err(JsValue::from(&msg))
+            })?;
+
+        self.logger.add_to_event_log(&"Datagram reader ready.");
+
+        let decoder = web_sys::TextDecoder::new_with_label("utf-8").unwrap();
+        loop {
+            let obj = JsFuture::from(datagram_reader.read())
+                .await
+                .or_else(|err| {
+                    let msg = format!("Error while reading datagrams: {:?}", err);
+                    self.logger.add_to_event_log_error(&msg);
+                    Err(JsValue::from(&msg))
+                })?;
+            let done = js_sys::Reflect::get(&obj, &JsValue::from("done"))?
+                .as_bool()
+                .unwrap_or(false);
+            if done {
+                self.logger.add_to_event_log(&"Done reading datagrams!");
+                break;
+            }
+
+            let value = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
+            assert!(!value.is_array());
+            let value = value.dyn_into::<js_sys::Object>()?;
+            let data = decoder.decode_with_buffer_source(&value)?;
+            self.logger
+                .add_to_event_log(&format!("Datagram received: {}", data));
+        }
+
         Ok(())
     }
 }
