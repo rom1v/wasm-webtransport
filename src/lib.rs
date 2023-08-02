@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::{JsFuture, spawn_local};
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::console;
 
 #[cfg(feature = "wee_alloc")]
@@ -101,7 +101,9 @@ impl WasmCtx {
 
         let logger = self.logger.clone();
         spawn_local(async move {
-            Self::accept_unidirectional_streams(&logger, &web_transport).await.unwrap_throw();
+            Self::accept_unidirectional_streams(&logger, &web_transport)
+                .await
+                .unwrap_throw();
         });
 
         let send_button = self
@@ -124,10 +126,40 @@ impl WasmCtx {
     }
 
     pub fn send_data(&self) -> Result<(), JsValue> {
+        let selected = self.get_selected_radio_value().expect("No radio selected");
+
+        // TODO
+
         Ok(())
     }
 
-    async fn read_datagrams(logger: &Logger, web_transport: &web_sys::WebTransport) -> Result<(), JsValue> {
+    fn get_selected_radio_value(&self) -> Option<String> {
+        let form = self
+            .document
+            .get_element_by_id("sending")
+            .expect("No sending")
+            .dyn_into::<web_sys::HtmlFormElement>()
+            .unwrap();
+
+        let inputs = form.elements();
+        for i in 0..inputs.length() {
+            if let Ok(input) = inputs
+                .get_with_index(i)?
+                .dyn_into::<web_sys::HtmlInputElement>()
+            {
+                if input.name() == "sendtype" && input.checked() {
+                    return Some(input.value());
+                }
+            }
+        }
+
+        None
+    }
+
+    async fn read_datagrams(
+        logger: &Logger,
+        web_transport: &web_sys::WebTransport,
+    ) -> Result<(), JsValue> {
         let datagram_reader = web_transport
             .datagrams()
             .readable()
@@ -195,8 +227,7 @@ impl WasmCtx {
                 .as_bool()
                 .unwrap_or(false);
             if done {
-                logger
-                    .add_to_event_log("Done accepting unidirectional streams!");
+                logger.add_to_event_log("Done accepting unidirectional streams!");
                 break;
             }
 
@@ -209,7 +240,9 @@ impl WasmCtx {
             logger.add_to_event_log(&format!("New incoming unidirectional stream #{number}"));
             let logger = logger.clone();
             spawn_local(async move {
-                Self::read_from_incoming_stream(&logger, &stream, number).await.unwrap_throw();
+                Self::read_from_incoming_stream(&logger, &stream, number)
+                    .await
+                    .unwrap_throw();
             });
         }
 
