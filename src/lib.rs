@@ -1,4 +1,3 @@
-use js_sys;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::console;
