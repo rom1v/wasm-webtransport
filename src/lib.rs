@@ -18,7 +18,6 @@ pub fn main() -> Result<(), JsValue> {
 
 #[wasm_bindgen]
 pub struct WasmCtx {
-    window: web_sys::Window,
     document: web_sys::Document,
     logger: Logger,
     close_cbs: Option<CloseCallbacks>,
@@ -33,7 +32,6 @@ impl WasmCtx {
         let document = window.document().expect("should have a document on window");
         let logger = Logger::new(document.clone());
         Self {
-            window,
             document,
             logger,
             close_cbs: None,
