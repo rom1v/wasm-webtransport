@@ -285,7 +285,7 @@ impl WasmCtx {
 
             let stream = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
             let stream = stream
-                .dyn_into::<web_sys::WebTransportReceiveStream>()
+                .dyn_into::<web_sys::ReadableStream>()
                 .unwrap();
             let number = stream_number;
             stream_number += 1;
@@ -303,7 +303,7 @@ impl WasmCtx {
 
     async fn read_from_incoming_stream(
         logger: &Logger,
-        stream: &web_sys::WebTransportReceiveStream,
+        stream: &web_sys::ReadableStream,
         number: u32,
     ) -> Result<(), JsValue> {
         let stream_reader = stream

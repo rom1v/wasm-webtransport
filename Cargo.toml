@@ -43,7 +43,6 @@ features = [
     "TextEncoder",
     "WebTransport",
     "WebTransportDatagramDuplexStream",
-    "WebTransportReceiveStream",
     "Window",
     "WritableStream",
     "WritableStreamDefaultWriter",
