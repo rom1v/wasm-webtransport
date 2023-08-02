@@ -125,8 +125,6 @@ impl WasmCtx {
             .dyn_into::<web_sys::HtmlInputElement>()?;
         connect_button.set_disabled(true);
 
-        console::log_1(&JsValue::from_str(&url));
-
         Ok(())
     }
 
