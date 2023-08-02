@@ -125,10 +125,62 @@ impl WasmCtx {
         Ok(())
     }
 
-    pub fn send_data(&self) -> Result<(), JsValue> {
-        let selected = self.get_selected_radio_value().expect("No radio selected");
+    pub async fn send_data(&self) -> Result<(), JsValue> {
+        let encoder = web_sys::TextEncoder::new().unwrap();
 
-        // TODO
+        let raw_data = self
+            .document
+            .get_element_by_id("data")
+            .expect("No data element")
+            .dyn_into::<web_sys::HtmlTextAreaElement>()
+            .unwrap()
+            .value();
+
+        let data = encoder.encode_with_input(&raw_data);
+
+        let array = &data
+            .iter()
+            .map(|&v| JsValue::from(v))
+            .collect::<js_sys::Array>();
+        let typed_array = js_sys::Uint8Array::new(&array);
+        let data_js_value = JsValue::from(typed_array);
+
+        let selected = self.get_selected_radio_value().expect("No radio selected");
+        match selected.as_str() {
+            "datagram" => {
+                let promise = self
+                    .datagram_writer
+                    .as_ref()
+                    .unwrap()
+                    .write_with_chunk(&data_js_value);
+                JsFuture::from(promise).await?;
+                self.logger
+                    .add_to_event_log(&format!("Sent datagram: {raw_data}"));
+            }
+            "unidi" => {
+                let promise = self
+                    .web_transport
+                    .as_ref()
+                    .unwrap()
+                    .create_unidirectional_stream();
+                let stream = JsFuture::from(promise)
+                    .await?
+                    .dyn_into::<web_sys::WritableStream>()
+                    .unwrap();
+                let stream_writer = stream.get_writer()?;
+                let promise = stream_writer.write_with_chunk(&data_js_value);
+                JsFuture::from(promise).await?;
+                let promise = stream_writer.close();
+                JsFuture::from(promise).await?;
+                self.logger.add_to_event_log(&format!(
+                    "Sent a unidirectional stream with data: {raw_data}"
+                ));
+            }
+            "bidi" => {}
+            _ => {
+                Err(JsValue::from(&format!("Unexpected selection: {selected}")))?;
+            }
+        }
 
         Ok(())
     }
