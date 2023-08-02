@@ -1,6 +1,8 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::console;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -23,6 +25,7 @@ pub struct WasmCtx {
     close_cbs: Option<CloseCallbacks>,
     web_transport: Option<web_sys::WebTransport>,
     datagram_writer: Option<web_sys::WritableStreamDefaultWriter>,
+    stream_number: Rc<RefCell<u32>>,
 }
 
 #[wasm_bindgen]
@@ -37,6 +40,7 @@ impl WasmCtx {
             close_cbs: None,
             web_transport: None,
             datagram_writer: None,
+            stream_number: Rc::new(RefCell::new(1)),
         }
     }
 
@@ -100,8 +104,9 @@ impl WasmCtx {
         });
 
         let logger = self.logger.clone();
+        let stream_number = self.stream_number.clone();
         spawn_local(async move {
-            Self::accept_unidirectional_streams(&logger, &web_transport)
+            Self::accept_unidirectional_streams(&logger, stream_number, &web_transport)
                 .await
                 .unwrap_throw();
         });
@@ -176,7 +181,43 @@ impl WasmCtx {
                     "Sent a unidirectional stream with data: {raw_data}"
                 ));
             }
-            "bidi" => {}
+            "bidi" => {
+                let promise = self
+                    .web_transport
+                    .as_ref()
+                    .unwrap()
+                    .create_bidirectional_stream();
+                let stream = JsFuture::from(promise)
+                    .await?
+                    .dyn_into::<web_sys::WebTransportBidirectionalStream>()
+                    .unwrap();
+
+                let readable_stream = stream.readable();
+
+                let number = {
+                    let mut stream_number = self.stream_number.borrow_mut();
+                    let number = *stream_number;
+                    *stream_number += 1;
+                    number
+                };
+
+                let logger = self.logger.clone();
+                spawn_local(async move {
+                    Self::read_from_incoming_stream(&logger, &readable_stream, number)
+                        .await
+                        .unwrap_throw();
+                });
+
+                let writable_stream = stream.writable();
+                let stream_writer = writable_stream.get_writer()?;
+                let promise = stream_writer.write_with_chunk(&data_js_value);
+                JsFuture::from(promise).await?;
+                let promise = stream_writer.close();
+                JsFuture::from(promise).await?;
+                self.logger.add_to_event_log(&format!(
+                    "Opened bidirectional stream #{number} with data: {raw_data}"
+                ));
+            }
             _ => {
                 Err(JsValue::from(&format!("Unexpected selection: {selected}")))?;
             }
@@ -254,6 +295,7 @@ impl WasmCtx {
 
     async fn accept_unidirectional_streams(
         logger: &Logger,
+        stream_number: Rc<RefCell<u32>>,
         web_transport: &web_sys::WebTransport,
     ) -> Result<(), JsValue> {
         let unistreams_reader = web_transport
@@ -266,7 +308,6 @@ impl WasmCtx {
                 Err(JsValue::from(&msg))
             })?;
 
-        let mut stream_number = 1;
         loop {
             let obj = JsFuture::from(unistreams_reader.read())
                 .await
@@ -287,8 +328,12 @@ impl WasmCtx {
             let stream = stream
                 .dyn_into::<web_sys::ReadableStream>()
                 .unwrap();
-            let number = stream_number;
-            stream_number += 1;
+            let number = {
+                let mut stream_number = stream_number.borrow_mut();
+                let number = *stream_number;
+                *stream_number += 1;
+                number
+            };
             logger.add_to_event_log(&format!("New incoming unidirectional stream #{number}"));
             let logger = logger.clone();
             spawn_local(async move {
