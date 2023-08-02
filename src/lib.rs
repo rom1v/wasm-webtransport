@@ -29,6 +29,12 @@ pub struct WasmCtx {
 }
 
 #[wasm_bindgen]
+pub fn fff() -> Result<(), JsValue> {
+    console::log_1(&JsValue::from_str("fff()"));
+    Ok(())
+}
+
+#[wasm_bindgen]
 impl WasmCtx {
     pub fn new() -> Self {
         let window = web_sys::window().expect("no global `window` exists");
@@ -97,6 +103,9 @@ impl WasmCtx {
 
         self.logger.add_to_event_log("Datagram writer ready.");
 
+        Self::read_datagrams(&self.logger, &web_transport).await?;
+        self.logger.add_to_event_log("Datagram writer ready 2.");
+
         let logger = self.logger.clone();
         let wt = web_transport.clone();
         spawn_local(async move {
@@ -128,7 +137,30 @@ impl WasmCtx {
         Ok(())
     }
 
+    pub fn aaa(&self) -> Result<(), JsValue> {
+        Ok(())
+    }
+
+    pub async fn bbb(&mut self) -> Result<(), JsValue> {
+        let url = self
+            .document
+            .get_element_by_id("url")
+            .expect("No url element");
+        let url = url.dyn_into::<web_sys::HtmlInputElement>().unwrap().value();
+        let web_transport = web_sys::WebTransport::new(&url).or_else(|err| {
+            let msg = format!("Failed to create connection object. {:?}", err);
+            self.logger.add_to_event_log_error(&msg);
+            Err(JsValue::from(&msg))
+        })?;
+        self.logger.add_to_event_log("Datagram writer ready.");
+
+        Self::read_datagrams(&self.logger, &web_transport).await?;
+        self.logger.add_to_event_log("Datagram writer ready 2.");
+        Ok(())
+    }
+
     pub async fn send_data(&self) -> Result<(), JsValue> {
+        self.logger.add_to_event_log("send_data");
         let encoder = web_sys::TextEncoder::new().unwrap();
 
         let raw_data = self
