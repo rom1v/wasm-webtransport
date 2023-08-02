@@ -58,7 +58,7 @@ impl WasmCtx {
             Err(JsValue::from(&msg))
         })?;
 
-        self.logger.add_to_event_log(&"Initiating connection...");
+        self.logger.add_to_event_log("Initiating connection...");
 
         JsFuture::from(web_transport.ready()).await.or_else(|err| {
             let msg = format!("Connection failed. {:?}", err);
@@ -66,16 +66,16 @@ impl WasmCtx {
             Err(JsValue::from(&msg))
         })?;
 
-        self.logger.add_to_event_log(&"Connection ready.");
+        self.logger.add_to_event_log("Connection ready.");
 
         let logger = self.logger.clone();
         let then = Closure::once(move |_| {
-            logger.add_to_event_log(&"Connection closed normally.");
+            logger.add_to_event_log("Connection closed normally.");
         });
 
         let logger = self.logger.clone();
         let catch = Closure::once(move |_| {
-            logger.add_to_event_log(&"Connection closed abruptly.");
+            logger.add_to_event_log("Connection closed abruptly.");
         });
 
         // Keep the closures alive
@@ -96,7 +96,7 @@ impl WasmCtx {
             })?;
         self.datagram_writer = Some(datagram_writer);
 
-        self.logger.add_to_event_log(&"Datagram writer ready.");
+        self.logger.add_to_event_log("Datagram writer ready.");
 
         self.read_datagrams(&web_transport).await?;
         self.accept_unidirectional_streams(&web_transport).await?;
@@ -136,7 +136,7 @@ impl WasmCtx {
                 Err(JsValue::from(&msg))
             })?;
 
-        self.logger.add_to_event_log(&"Datagram reader ready.");
+        self.logger.add_to_event_log("Datagram reader ready.");
 
         let decoder = web_sys::TextDecoder::new_with_label("utf-8").unwrap();
         loop {
@@ -151,7 +151,7 @@ impl WasmCtx {
                 .as_bool()
                 .unwrap_or(false);
             if done {
-                self.logger.add_to_event_log(&"Done reading datagrams!");
+                self.logger.add_to_event_log("Done reading datagrams!");
                 break;
             }
 
@@ -193,7 +193,7 @@ impl WasmCtx {
                 .unwrap_or(false);
             if done {
                 self.logger
-                    .add_to_event_log(&"Done accepting unidirectional streams!");
+                    .add_to_event_log("Done accepting unidirectional streams!");
                 break;
             }
 
