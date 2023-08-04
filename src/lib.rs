@@ -374,7 +374,6 @@ impl WasmCtx {
             }
 
             let value = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
-            assert!(!value.is_array());
             let value = value.dyn_into::<js_sys::Object>()?;
             let data = decoder.decode_with_buffer_source(&value)?;
             logger.add_to_event_log(&format!("Datagram received: {}", data));
