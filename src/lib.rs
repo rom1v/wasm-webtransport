@@ -225,26 +225,15 @@ impl WasmCtx {
     }
 
     fn get_selected_radio_value(&self) -> Option<String> {
-        let form = self
-            .document
-            .get_element_by_id("sending")
-            .expect("No sending")
-            .dyn_into::<web_sys::HtmlFormElement>()
-            .unwrap();
-
-        let inputs = form.elements();
-        for i in 0..inputs.length() {
-            if let Ok(input) = inputs
-                .get_with_index(i)?
-                .dyn_into::<web_sys::HtmlInputElement>()
-            {
-                if input.name() == "sendtype" && input.checked() {
-                    return Some(input.value());
-                }
-            }
-        }
-
-        None
+        self.document
+            .query_selector("#sending input[name=\"sendtype\"]:checked")
+            .expect("No selection")
+            .map(|element| {
+                element
+                    .dyn_into::<web_sys::HtmlInputElement>()
+                    .unwrap()
+                    .value()
+            })
     }
 
     async fn read_datagrams(
