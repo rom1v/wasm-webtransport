@@ -1,8 +1,8 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_sys::console;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -323,9 +323,7 @@ impl WasmCtx {
             }
 
             let stream = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
-            let stream = stream
-                .dyn_into::<web_sys::ReadableStream>()
-                .unwrap();
+            let stream = stream.dyn_into::<web_sys::ReadableStream>().unwrap();
             let number = {
                 let mut stream_number = stream_number.borrow_mut();
                 let number = *stream_number;
