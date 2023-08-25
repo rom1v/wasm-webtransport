@@ -1,4 +1,5 @@
 use crate::log::clog;
+use bytes::Bytes;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
@@ -23,9 +24,7 @@ pub fn main() -> Result<(), JsValue> {
 pub struct WasmCtx {
     document: web_sys::Document,
     logger: Logger,
-    close_cbs: Option<CloseCallbacks>,
-    web_transport: Option<web_sys::WebTransport>,
-    datagram_writer: Option<web_sys::WritableStreamDefaultWriter>,
+    conn: Option<kyproto::Connection>,
     stream_number: Rc<RefCell<u32>>,
 }
 
@@ -38,9 +37,7 @@ impl WasmCtx {
         Self {
             document,
             logger,
-            close_cbs: None,
-            web_transport: None,
-            datagram_writer: None,
+            conn: None,
             stream_number: Rc::new(RefCell::new(1)),
         }
     }
@@ -68,48 +65,38 @@ impl WasmCtx {
 
         self.logger.add_to_event_log("Connection ready.");
 
+        let conn = kyproto::Connection::from(web_transport);
+
+        let conn2 = conn.clone();
         let logger = self.logger.clone();
-        let then = Closure::once(move |_| {
-            logger.add_to_event_log("Connection closed normally.");
-        });
-
-        let logger = self.logger.clone();
-        let catch = Closure::once(move |_| {
-            logger.add_to_event_log("Connection closed abruptly.");
-        });
-
-        // Keep the closures alive
-        self.close_cbs = Some(CloseCallbacks { then, catch });
-        let cbs = self.close_cbs.as_ref().unwrap();
-        let _ = web_transport.closed().then2(&cbs.then, &cbs.catch);
-
-        self.web_transport = Some(web_transport.clone());
-
-        let datagram_writer = web_transport
-            .datagrams()
-            .writable()
-            .get_writer()
-            .or_else(|err| {
-                let msg = format!("Sending datagrams not supported: {:?}", err);
-                self.logger.add_to_event_log_error(&msg);
-                Err(JsValue::from(&msg))
-            })?;
-        self.datagram_writer = Some(datagram_writer);
-
-        self.logger.add_to_event_log("Datagram writer ready.");
-
-        let logger = self.logger.clone();
-        let wt = web_transport.clone();
         spawn_local(async move {
-            Self::read_datagrams(&logger, &wt).await.unwrap_throw();
+            match conn2.closed().await {
+                Ok(_) => logger.add_to_event_log("Connection closed normally."),
+                Err(err) => {
+                    logger.add_to_event_log(&format!("Connection closed abruptly: {err:?}"))
+                }
+            }
+        });
+
+        self.conn = Some(conn.clone());
+
+        let logger = self.logger.clone();
+        let conn2 = conn.clone();
+        spawn_local(async move {
+            let result = Self::read_datagrams(&logger, &conn2).await;
+            if let Err(err) = result {
+                clog!("Error while reading datagrams: {err:?}");
+            }
         });
 
         let logger = self.logger.clone();
         let stream_number = self.stream_number.clone();
         spawn_local(async move {
-            Self::accept_unidirectional_streams(&logger, stream_number, &web_transport)
-                .await
-                .unwrap_throw();
+            let result = Self::accept_unidirectional_streams(&logger, stream_number, &conn)
+                .await;
+            if let Err(err) = result {
+                clog!("Error while accepting uni streams: {err:?}");
+            }
         });
 
         let send_button = self
@@ -130,9 +117,7 @@ impl WasmCtx {
     }
 
     pub async fn send_data(&self) -> Result<(), JsValue> {
-        let encoder = web_sys::TextEncoder::new().unwrap();
-
-        let raw_data = self
+        let value = self
             .document
             .get_element_by_id("data")
             .expect("No data element")
@@ -140,58 +125,25 @@ impl WasmCtx {
             .unwrap()
             .value();
 
-        let data = encoder.encode_with_input(&raw_data);
-
-        let array = &data
-            .iter()
-            .map(|&v| JsValue::from(v))
-            .collect::<js_sys::Array>();
-        let typed_array = js_sys::Uint8Array::new(&array);
-        let data_js_value = JsValue::from(typed_array);
+        let conn = self.conn.as_ref().expect("No connection");
 
         let selected = self.get_selected_radio_value().expect("No radio selected");
         match selected.as_str() {
             "datagram" => {
-                let promise = self
-                    .datagram_writer
-                    .as_ref()
-                    .unwrap()
-                    .write_with_chunk(&data_js_value);
-                JsFuture::from(promise).await?;
+                let bytes = Bytes::from(value.as_bytes().to_vec());
+                conn.send_datagram(bytes).await?;
                 self.logger
-                    .add_to_event_log(&format!("Sent datagram: {raw_data}"));
+                    .add_to_event_log(&format!("Sent datagram: {value}"));
             }
             "unidi" => {
-                let promise = self
-                    .web_transport
-                    .as_ref()
-                    .unwrap()
-                    .create_unidirectional_stream();
-                let stream = JsFuture::from(promise)
-                    .await?
-                    .dyn_into::<web_sys::WritableStream>()
-                    .unwrap();
-                let stream_writer = stream.get_writer()?;
-                let promise = stream_writer.write_with_chunk(&data_js_value);
-                JsFuture::from(promise).await?;
-                let promise = stream_writer.close();
-                JsFuture::from(promise).await?;
-                self.logger.add_to_event_log(&format!(
-                    "Sent a unidirectional stream with data: {raw_data}"
-                ));
+                let mut uni = conn.open_uni().await?;
+                uni.write_all(value.as_bytes()).await?;
+                uni.close().await?;
+                self.logger
+                    .add_to_event_log(&format!("Sent a unidirectional stream with data: {value}"));
             }
             "bidi" => {
-                let promise = self
-                    .web_transport
-                    .as_ref()
-                    .unwrap()
-                    .create_bidirectional_stream();
-                let stream = JsFuture::from(promise)
-                    .await?
-                    .dyn_into::<web_sys::WebTransportBidirectionalStream>()
-                    .unwrap();
-
-                let readable_stream = stream.readable();
+                let (mut send, recv) = conn.open_bi().await?;
 
                 let number = {
                     let mut stream_number = self.stream_number.borrow_mut();
@@ -200,22 +152,20 @@ impl WasmCtx {
                     number
                 };
 
+                send.write_all(value.as_bytes()).await?;
+                send.close().await?;
+                self.logger.add_to_event_log(&format!(
+                    "Opened bidirectional stream #{number} with data: {value}"
+                ));
+
                 let logger = self.logger.clone();
                 spawn_local(async move {
-                    Self::read_from_incoming_stream(&logger, &readable_stream, number)
-                        .await
-                        .unwrap_throw();
+                    let result = Self::read_from_incoming_stream(&logger, recv, number)
+                        .await;
+                    if let Err(err) = result {
+                        clog!("Error while reading stream {number}: {err:?}");
+                    }
                 });
-
-                let writable_stream = stream.writable();
-                let stream_writer = writable_stream.get_writer()?;
-                let promise = stream_writer.write_with_chunk(&data_js_value);
-                JsFuture::from(promise).await?;
-                let promise = stream_writer.close();
-                JsFuture::from(promise).await?;
-                self.logger.add_to_event_log(&format!(
-                    "Opened bidirectional stream #{number} with data: {raw_data}"
-                ));
             }
             _ => {
                 Err(JsValue::from(&format!("Unexpected selection: {selected}")))?;
@@ -237,83 +187,21 @@ impl WasmCtx {
             })
     }
 
-    async fn read_datagrams(
-        logger: &Logger,
-        web_transport: &web_sys::WebTransport,
-    ) -> Result<(), JsValue> {
-        let datagram_reader = web_transport
-            .datagrams()
-            .readable()
-            .get_reader()
-            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-            .or_else(|obj| {
-                let msg = format!("Receiving datagrams not supported: {:?}", obj);
-                logger.add_to_event_log_error(&msg);
-                Err(JsValue::from(&msg))
-            })?;
-
-        logger.add_to_event_log("Datagram reader ready.");
-
-        let decoder = web_sys::TextDecoder::new_with_label("utf-8").unwrap();
+    async fn read_datagrams(logger: &Logger, conn: &kyproto::Connection) -> Result<(), JsValue> {
         loop {
-            let obj = JsFuture::from(datagram_reader.read())
-                .await
-                .or_else(|err| {
-                    let msg = format!("Error while reading datagrams: {:?}", err);
-                    logger.add_to_event_log_error(&msg);
-                    Err(JsValue::from(&msg))
-                })?;
-            let done = js_sys::Reflect::get(&obj, &JsValue::from("done"))?
-                .as_bool()
-                .unwrap_or(false);
-            if done {
-                logger.add_to_event_log("Done reading datagrams!");
-                break;
-            }
-
-            let value = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
-            assert!(!value.is_array());
-            let value = value.dyn_into::<js_sys::Object>()?;
-            let data = decoder.decode_with_buffer_source(&value)?;
+            let datagram = conn.read_datagram().await?;
+            let data = String::from_utf8_lossy(&datagram);
             logger.add_to_event_log(&format!("Datagram received: {}", data));
         }
-
-        Ok(())
     }
 
     async fn accept_unidirectional_streams(
         logger: &Logger,
         stream_number: Rc<RefCell<u32>>,
-        web_transport: &web_sys::WebTransport,
+        conn: &kyproto::Connection,
     ) -> Result<(), JsValue> {
-        let unistreams_reader = web_transport
-            .incoming_unidirectional_streams()
-            .get_reader()
-            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-            .or_else(|obj| {
-                let msg = format!("Could not get unistream reader: {:?}", obj);
-                logger.add_to_event_log_error(&msg);
-                Err(JsValue::from(&msg))
-            })?;
-
         loop {
-            let obj = JsFuture::from(unistreams_reader.read())
-                .await
-                .or_else(|err| {
-                    let msg = format!("Error while accepting streams: {:?}", err);
-                    logger.add_to_event_log_error(&msg);
-                    Err(JsValue::from(&msg))
-                })?;
-            let done = js_sys::Reflect::get(&obj, &JsValue::from("done"))?
-                .as_bool()
-                .unwrap_or(false);
-            if done {
-                logger.add_to_event_log("Done accepting unidirectional streams!");
-                break;
-            }
-
-            let stream = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
-            let stream = stream.dyn_into::<web_sys::ReadableStream>().unwrap();
+            let recv = conn.accept_uni().await?;
             let number = {
                 let mut stream_number = stream_number.borrow_mut();
                 let number = *stream_number;
@@ -323,57 +211,38 @@ impl WasmCtx {
             logger.add_to_event_log(&format!("New incoming unidirectional stream #{number}"));
             let logger = logger.clone();
             spawn_local(async move {
-                Self::read_from_incoming_stream(&logger, &stream, number)
-                    .await
-                    .unwrap_throw();
+                let result = Self::read_from_incoming_stream(&logger, recv, number)
+                    .await;
+                if let Err(err) = result {
+                    clog!("Error while reading stream {number}: {err:?}");
+                }
             });
         }
-
-        Ok(())
     }
 
     async fn read_from_incoming_stream(
         logger: &Logger,
-        stream: &web_sys::ReadableStream,
+        mut recv: kyproto::RecvStream,
         number: u32,
     ) -> Result<(), JsValue> {
-        let stream_reader = stream
-            .get_reader()
-            .dyn_into::<web_sys::ReadableStreamDefaultReader>()
-            .or_else(|obj| {
-                let msg = format!("Could not get stream reader: {:?}", obj);
-                logger.add_to_event_log_error(&msg);
-                Err(JsValue::from(&msg))
-            })?;
-        let decoder = web_sys::TextDecoder::new_with_label("utf-8").unwrap();
-
+        // We don't mind any additional copy
+        let mut buf = vec![0; 1024];
+        let mut vec = vec![];
         loop {
-            let obj = JsFuture::from(stream_reader.read()).await.or_else(|err| {
-                let msg = format!("Error while reading stream #{number}: {:?}", err);
-                logger.add_to_event_log_error(&msg);
-                Err(JsValue::from(&msg))
-            })?;
-            let done = js_sys::Reflect::get(&obj, &JsValue::from("done"))?
-                .as_bool()
-                .unwrap_or(false);
-            if done {
-                logger.add_to_event_log(&format!("Stream #{number} closed"));
+            let r = recv.read(&mut buf).await?;
+            if let Some(r) = r {
+                vec.extend_from_slice(&buf[..r]);
+            } else {
                 break;
             }
-
-            let value = js_sys::Reflect::get(&obj, &JsValue::from("value"))?;
-            let value = value.dyn_into::<js_sys::Object>()?;
-            let data = decoder.decode_with_buffer_source(&value)?;
-            logger.add_to_event_log(&format!("Datagram received: {}", data));
         }
+
+        logger.add_to_event_log(&format!("Stream #{number} closed"));
+        let data = String::from_utf8_lossy(&vec);
+        logger.add_to_event_log(&format!("Data received: {}", data));
 
         Ok(())
     }
-}
-
-struct CloseCallbacks {
-    then: Closure<dyn FnMut(JsValue)>,
-    catch: Closure<dyn FnMut(JsValue)>,
 }
 
 #[derive(PartialEq, Eq, Copy, Clone)]
