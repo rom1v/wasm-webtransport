@@ -22,6 +22,7 @@ wee_alloc = { version = "0.4.2", optional = true }
 console_error_panic_hook = "0.1"
 wasm-bindgen-futures = "0.4.37"
 js-sys = "0.3.64"
+kyproto = { version = "0.1", path = "../kyproto", features = ["webtransport-js"] }
 
 [dependencies.web-sys]
 version = "0.3"
