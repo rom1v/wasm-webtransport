@@ -1,8 +1,10 @@
+use crate::log::clog;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::{spawn_local, JsFuture};
-use web_sys::console;
+
+mod log;
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -13,7 +15,7 @@ pub fn main() -> Result<(), JsValue> {
     #[cfg(debug_assertions)]
     console_error_panic_hook::set_once();
 
-    console::log_1(&JsValue::from_str("ok"));
+    clog!("ok");
 
     Ok(())
 }
